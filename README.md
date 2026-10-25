@@ -193,6 +193,95 @@ El cliente estático (`public/`) consume este estándar de forma uniforme:
 
 ## Ejecución local
 
+### Taller II: PostgreSQL y Adminer con Docker (parte 1)
+
+Esta entrega prepara la infraestructura de base de datos. **La API todavía
+guarda los datos en memoria**: la conexión con SQLAlchemy, las migraciones con
+Alembic y las transacciones se implementarán en las siguientes partes.
+
+No hace falta instalar PostgreSQL ni Adminer directamente en el equipo.
+Instala [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/)
+(en este Mac, la versión para Apple silicon), ábrelo y espera a que el motor
+esté listo. Docker Desktop incluye Docker Compose.
+
+Desde la carpeta del proyecto:
+
+```bash
+docker --version
+docker compose version
+cp .env.example .env
+```
+
+Copia el archivo solo si todavía no tienes `.env`. Edita `POSTGRES_PASSWORD`
+para elegir tu contraseña local. No subas `.env` al repositorio; ya está
+incluido en `.gitignore`. Las variables se leen automáticamente desde ese
+archivo al ejecutar Compose. Si un puerto está ocupado, cambia
+`POSTGRES_PORT` o `ADMINER_PORT` en `.env`.
+
+```bash
+docker compose config --quiet
+docker compose up -d --wait
+docker compose ps
+```
+
+El servicio `db` debe aparecer saludable (`healthy`) y `adminer` en ejecución.
+Compose espera a que PostgreSQL esté listo antes de iniciar Adminer.
+
+Abre <http://localhost:8080> (o el puerto elegido en `ADMINER_PORT`) y entra con:
+
+| Campo de Adminer | Valor |
+| --- | --- |
+| Sistema | PostgreSQL |
+| Servidor | `db` |
+| Usuario | El valor de `POSTGRES_USER` |
+| Contraseña | El valor de `POSTGRES_PASSWORD` |
+| Base de datos | El valor de `POSTGRES_DB` |
+
+Los contenedores comparten la red `backend`: Adminer encuentra PostgreSQL
+con el nombre `db` y su puerto interno `5432`. Una API ejecutada directamente
+en el equipo usará `localhost` y `POSTGRES_PORT` cuando implementemos la
+conexión. Los puertos publicados solo aceptan conexiones desde este equipo.
+
+#### Comprobar que los datos persisten
+
+En la opción **Comando SQL** de Adminer, ejecuta:
+
+```sql
+CREATE TABLE prueba_persistencia (id integer PRIMARY KEY, mensaje text NOT NULL);
+INSERT INTO prueba_persistencia VALUES (1, 'Los datos persisten');
+```
+
+Luego, en la terminal:
+
+```bash
+docker compose down
+docker compose up -d --wait
+```
+
+Vuelve a entrar a Adminer y ejecuta:
+
+```sql
+SELECT * FROM prueba_persistencia;
+DROP TABLE prueba_persistencia;
+```
+
+El `SELECT` debe mostrar la fila creada; el `DROP` limpia solo esta tabla de
+prueba. Los datos de PostgreSQL se guardan en el volumen `postgres_data`.
+`docker compose down` conserva ese volumen; **añadir `-v` borra sus datos**.
+Las credenciales iniciales se aplican cuando el volumen está vacío: editar
+`.env` después no cambia automáticamente la contraseña de una base existente.
+
+Para revisar problemas de arranque:
+
+```bash
+docker compose logs db adminer
+```
+
+Referencias: [imagen oficial PostgreSQL](https://hub.docker.com/_/postgres) e
+[imagen oficial Adminer](https://hub.docker.com/_/adminer).
+
+### Ejecutar FastAPI
+
 1. Instalar dependencias:
 
     ```bash
