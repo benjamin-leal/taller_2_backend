@@ -487,3 +487,9 @@ tsconfig.tsbuildinfo
 
 # Solución de referencia de la actividad Docker (no versionar)
 solucion/
+
+# Python y pruebas locales
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/

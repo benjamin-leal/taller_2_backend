@@ -195,9 +195,10 @@ El cliente estático (`public/`) consume este estándar de forma uniforme:
 
 ### Taller II: PostgreSQL y Adminer con Docker (parte 1)
 
-Esta entrega prepara la infraestructura de base de datos. **La API todavía
-guarda los datos en memoria**: la conexión con SQLAlchemy, las migraciones con
-Alembic y las transacciones se implementarán en las siguientes partes.
+Esta parte prepara la infraestructura de base de datos. **El CRUD todavía
+guarda los datos en memoria**. La parte 2, descrita abajo, incorpora la conexión
+con SQLAlchemy y la migración inicial; reemplazar los repositorios y aplicar
+las transacciones de los endpoints queda para la siguiente entrega.
 
 No hace falta instalar PostgreSQL ni Adminer directamente en el equipo.
 Instala [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/)
@@ -279,6 +280,65 @@ docker compose logs db adminer
 
 Referencias: [imagen oficial PostgreSQL](https://hub.docker.com/_/postgres) e
 [imagen oficial Adminer](https://hub.docker.com/_/adminer).
+
+### Taller II: conexión y migraciones (parte 2)
+
+Se agregaron SQLAlchemy (ORM), psycopg (conector PostgreSQL), Alembic
+(migraciones) y pydantic-settings (configuración desde `.env`).
+La estructura sigue la [guía de SQLAlchemy](https://docs.sqlalchemy.org/en/20/orm/quickstart.html)
+y el [tutorial de Alembic](https://alembic.sqlalchemy.org/en/latest/tutorial.html).
+
+Con Docker abierto y desde la carpeta del proyecto:
+
+```bash
+uv sync
+docker compose up -d --wait
+uv run alembic upgrade head
+uv run alembic current
+uv run alembic check
+```
+
+`upgrade head` crea las tablas `students` y `pets` y registra la revisión en
+`alembic_version`. Ejecutarlo nuevamente no recrea las tablas ni borra datos.
+`check` confirma que los modelos coinciden con las migraciones aplicadas.
+Las tablas no se crean automáticamente al iniciar FastAPI: se administran
+mediante las migraciones guardadas en `alembic/versions/`.
+
+- `app/database.py`: lee las credenciales de `.env` y proporciona una sesión
+  por petición. `POSTGRES_HOST` es `localhost` por defecto; si más adelante
+  la API corre en la misma red de Docker, deberá ser `db`.
+- `app/models.py`: define estudiantes y mascotas, UUID, fechas con zona horaria,
+  edades válidas, email y username únicos y nombre de mascota único por dueño.
+  La relación impide mascotas sin estudiante y elimina sus mascotas en cascada.
+- `GET /api/health/database`: ejecuta una consulta real; devuelve `200` con
+  `data: {"database": "ok"}` o `503` si la base no está disponible.
+
+Después de iniciar FastAPI puedes comprobar la conexión en
+<http://localhost:3000/api/health/database> y ver las tablas desde Adminer.
+**Esta comprobación no significa que el CRUD ya use PostgreSQL**: en esta
+entrega los endpoints de estudiantes y mascotas siguen usando sus repositorios
+en memoria. La sustitución y sus transacciones se harán en la parte 3.
+
+#### Pruebas
+
+```bash
+uv run python -m pytest -q
+```
+
+Sin una base de pruebas, solo se ejecutan las pruebas independientes y se
+omiten las de integración. Para ejecutarlas todas, crea una base dedicada
+(solo la primera vez), usando las credenciales de tu contenedor:
+
+```bash
+docker compose exec db sh -c 'createdb -U "$POSTGRES_USER" taller_test_local'
+TEST_POSTGRES_DB=taller_test_local uv run python -m pytest -q
+```
+
+Las pruebas aplican las migraciones en esa base, comprueban las restricciones
+y revierten los registros de prueba. Solo aceptan nombres que empiecen por
+`taller_test_`. No uses una base con información que quieras conservar.
+Se prueba el rollback al insertar mascotas duplicadas mediante el ORM; el
+rollback de los endpoints se incorporará cuando migremos el CRUD.
 
 ### Ejecutar FastAPI
 
