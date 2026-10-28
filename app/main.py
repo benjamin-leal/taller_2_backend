@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.health import router as health_router
 from app.pets.pets_controller import router as pets_router
 from app.shared.api_response import envelope_middleware
 from app.shared.exceptions import (
@@ -37,7 +36,6 @@ def create_app() -> FastAPI:
 
     app.middleware("http")(envelope_middleware)
 
-    app.include_router(health_router)
     app.include_router(students_router)
     app.include_router(pets_router)
 
