@@ -1,11 +1,13 @@
 # CRUD Students & Pets (FastAPI)
 
-Proyecto FastAPI que implementa un **CRUD** para la entidad `Student` y sus `Pet`, con **almacenamiento en memoria** a través de repositorios respaldados por diccionarios. Los datos viven mientras el proceso esté corriendo.
+Proyecto FastAPI que implementa un **CRUD** para la entidad `Student` y sus `Pet`, con **persistencia en PostgreSQL mediante SQLAlchemy**. Las migraciones se gestionan con Alembic y los datos se conservan en un volumen de Docker.
 
 ## Tecnologías
 
 - Python 3.13
-- FastAPI + repositorios en memoria
+- FastAPI + SQLAlchemy
+- PostgreSQL 17, Alembic y psycopg
+- Docker Compose y Adminer
 - HTML + JS + Tailwind CSS (frontend estático)
 
 ## Resumen funcional
@@ -46,7 +48,7 @@ La API expone operaciones CRUD completas sobre estudiantes y mascotas:
 
 Si no se envía `pets` (o se envía vacío), el comportamiento es exactamente el mismo de antes.
 
-> **Punto de transacción:** este endpoint realiza varias escrituras (el estudiante y cada mascota). Con un ORM/SQL, todas deben ejecutarse dentro de una transacción: si una mascota falla (por ejemplo, por nombre duplicado), el estudiante y las mascotas anteriores no deben quedar guardados. En esta versión en memoria la implementación es secuencial y **no** hace rollback, a propósito, para que la actividad de ORM/transacciones parta de ese problema.
+> **Transacción:** el estudiante y sus mascotas se guardan en una sola transacción. Si una mascota viola una restricción, se ejecuta rollback y no queda guardado ningún registro de esa petición. Los errores de unicidad se devuelven como HTTP 409 con el campo `errors`. El borrado de un estudiante elimina sus mascotas en cascada.
 
 ### Modelo de datos
 
@@ -185,44 +187,37 @@ El cliente estático (`public/`) consume este estándar de forma uniforme:
 ## Contexto técnico
 
 - **Backend**: FastAPI
-- **Persistencia**: en memoria (repositorios respaldados por diccionarios); los datos se pierden al reiniciar
+- **Persistencia**: PostgreSQL con repositorios SQLAlchemy y migraciones Alembic
 - **Validación**: Pydantic v2
 - **Frontend**: archivos estáticos en `public/` (Alpine.js + Tailwind CSS + vanilla-sonner, vía CDN)
 - **Gestor de dependencias**: uv
 - **Documentación**: Swagger en `/docs`
 
-## Ejecución local
+## Ejecución local (API fuera de Docker)
 
-1. Instalar dependencias:
+Para ejecutar todos los servicios en contenedores, usa la sección siguiente
+«Ejecución con Docker». Para desarrollar la API en el equipo:
 
-    ```bash
-    make install
-    ```
+1. Prepara `.env` desde `.env.example` como se explica abajo y arranca solo la BD:
 
-    O directamente con uv:
+   ```bash
+   docker compose up -d db --wait
+   uv sync --frozen
+   ```
 
-    ```bash
-    uv sync
-    ```
+2. Exporta una URL con tus credenciales reales y el puerto publicado de PostgreSQL.
+   Desde el equipo el servidor es `localhost`; dentro de Docker es `db`.
+   Sustituye `usuario`, `clave` y `base` en este ejemplo (codifica la contraseña
+   para URL si contiene caracteres especiales):
 
-2. Levantar el servidor en modo desarrollo:
+   ```bash
+   export DATABASE_URL='postgresql+psycopg://usuario:clave@localhost:5432/base'
+   uv run alembic upgrade head
+   uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
+   ```
 
-    ```bash
-    make dev
-    ```
-
-    O usando uv:
-
-    ```bash
-    uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
-    ```
-
-La aplicación queda disponible en:
-
-- `http://localhost:3000`
-- `http://localhost:3000/docs`
-
-> Al ser un almacenamiento en memoria, los datos se pierden cada vez que se reinicia el servidor (incluido el reload de desarrollo).
+La aplicación queda en http://localhost:3000 y Swagger en
+http://localhost:3000/docs. Reiniciar la API no borra los datos de PostgreSQL.
 
 ## Comandos útiles
 
@@ -291,16 +286,89 @@ docker compose down
 
 **Precaución:** `docker compose down -v` elimina también el volumen de datos.
 
-### Evidencia de rollback (pendiente de integración del rol 4)
+### Evidencia de rollback
 
-El servicio API aplica las migraciones, pero los endpoints de Student y Pet
-siguen usando memoria hasta integrar sus respectivos repositorios ORM.
-Por eso todavía no se presenta esta prueba como aprobada. Realizarla al
-integrar las transacciones del rol 4 y la persistencia de Pet.
+Verificado el **28 de octubre de 2026** sobre `main`, commit `e69ce87`,
+con Docker y una base PostgreSQL temporal inicialmente vacía. La API aplicó
+la migración `dbc21c130308` al arrancar. No se usaron datos de trabajo.
 
+Se envió `POST /api/students` con dos mascotas del mismo nombre:
 
-En Swagger, envía una petición `POST /api/students` con un estudiante nuevo y dos mascotas con el mismo nombre.
+```json
+{
+  "name": "Prueba Rollback",
+  "username": "rollback_final",
+  "email": "rollback@example.com",
+  "age": 22,
+  "pets": [
+    {"name": "Luna", "species": "gato"},
+    {"name": "Luna", "species": "perro"}
+  ]
+}
+```
 
-La respuesta esperada es HTTP `409`. Comprueba después que no se haya guardado el estudiante ni ninguna de las mascotas de esa petición.
+Respuesta real: **HTTP 409**.
 
-Registra la respuesta de la API y la comprobación posterior como evidencia.
+```json
+{
+  "code": 409,
+  "success": false,
+  "message": "Conflicto con datos existentes",
+  "timestamp": "2026-10-28T23:08:46.200Z",
+  "data": null,
+  "errors": {
+    "name": {"message": "Ya tienes una mascota con ese nombre"}
+  }
+}
+```
+
+Después se consultaron ambas tablas directamente en PostgreSQL:
+
+```sql
+SELECT (SELECT count(*) FROM students) AS students,
+       (SELECT count(*) FROM pets) AS pets;
+```
+
+Resultado real en esa base vacía de pruebas:
+
+```text
+ students | pets
+----------+------
+        0 |    0
+(1 row)
+```
+
+La restricción de nombre repetido provoca el rollback de toda la petición:
+no se conserva ni el estudiante ni la primera mascota. Para repetirlo,
+usa una base exclusiva de pruebas y envía el JSON desde Swagger. En Adminer
+puedes ejecutar la consulta anterior; los ceros solo se esperan si la base
+estaba vacía antes de la prueba.
+
+### Pruebas automatizadas
+
+Las pruebas requieren una base **desechable** cuyo nombre empiece por
+`taller_test_`. Vacían las tablas Student y Pet de esa base entre casos;
+no apuntes la URL a una base de trabajo. Con PostgreSQL iniciado, crea una
+base separada (ejecutar una sola vez):
+
+```bash
+docker compose exec db sh -c 'createdb -U "$POSTGRES_USER" taller_test_api'
+uv sync --frozen
+```
+
+Configura las credenciales reales del mismo servidor y su puerto publicado:
+
+```bash
+export TEST_DATABASE_URL='postgresql+psycopg://usuario:clave@localhost:5432/taller_test_api'
+DATABASE_URL="$TEST_DATABASE_URL" uv run pytest -q
+```
+
+Las pruebas aplican Alembic a la base de pruebas. Resultado comprobado en
+`e69ce87`: **20 passed**. Incluyen CRUD de Student y Pet, propiedad de las
+mascotas, unicidad, rollback, cascada, validación y conexión a la BD.
+Se observó un aviso de compatibilidad futura de AnyIO con pytest 10,
+sin fallos de pruebas.
+
+También se verificó el arranque con `docker compose up -d --build --wait`,
+HTTP 200 en `/api/health`, `/api/students` y `/docs`, y `alembic check` sin
+cambios pendientes. Al detener la BD temporal, `/api/health` devolvió 503.
