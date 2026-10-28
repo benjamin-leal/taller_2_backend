@@ -237,7 +237,20 @@ La aplicación queda disponible en:
 
 Requisitos: Docker Desktop abierto.
 
-1. Si `.env` ya existe, no lo sobrescribas. Comprueba que tenga `POSTGRES_DB`, `POSTGRES_USER` y `POSTGRES_PASSWORD`.
+1. Crea la configuración local si todavía no tienes `.env`:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Si ya existe, consérvalo. Configura `POSTGRES_DB`, `POSTGRES_USER`,
+   `POSTGRES_PASSWORD` y `DATABASE_URL`. Dentro de Docker, la URL debe usar
+   `postgresql+psycopg://`, el servidor `db` y el puerto `5432`.
+   El ejemplo interpola las variables con Docker Compose. Si la contraseña
+   contiene caracteres especiales como `@`, `:` o `/`, escribe la URL completa
+   con la contraseña codificada para URL. No subas `.env` al repositorio.
+   `POSTGRES_PORT`, `ADMINER_PORT` y `API_PORT` cambian los puertos del equipo;
+   si los modificas, ajusta también las direcciones que abres en el navegador.
 
 2. Valida la configuración:
 
@@ -278,7 +291,13 @@ docker compose down
 
 **Precaución:** `docker compose down -v` elimina también el volumen de datos.
 
-### Evidencia de rollback
+### Evidencia de rollback (pendiente de integración del rol 4)
+
+El servicio API aplica las migraciones, pero los endpoints de Student y Pet
+siguen usando memoria hasta integrar sus respectivos repositorios ORM.
+Por eso todavía no se presenta esta prueba como aprobada. Realizarla al
+integrar las transacciones del rol 4 y la persistencia de Pet.
+
 
 En Swagger, envía una petición `POST /api/students` con un estudiante nuevo y dos mascotas con el mismo nombre.
 
