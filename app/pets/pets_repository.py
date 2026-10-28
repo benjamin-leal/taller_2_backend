@@ -1,32 +1,50 @@
+from uuid import UUID
+
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
+
+from app.models import Pet as PetModel
 from app.pets.pets_schemas import Pet
-from app.shared.in_memory_store import InMemoryStore
 
 
 class PetsRepository:
-    def __init__(self) -> None:
-        self._store: InMemoryStore[Pet] = InMemoryStore()
+    """Comparte la sesión de la petición; el servicio confirma la transacción."""
 
-    def find_all_by_student(self, student_id: str) -> list[Pet]:
-        return self._store.find_by(lambda pet: pet.studentId == student_id)
+    def __init__(self, db: Session) -> None:
+        self.db = db
 
-    def find_by_id(self, pet_id: str) -> Pet | None:
-        return self._store.get(pet_id)
-
-    def find_by_student_and_name(self, student_id: str, name: str) -> Pet | None:
-        matches = self._store.find_by(
-            lambda pet: pet.studentId == student_id and pet.name == name
+    def find_all_by_student(self, student_id: str) -> list[PetModel]:
+        return list(
+            self.db.scalars(select(PetModel).where(PetModel.studentId == student_id))
         )
-        return matches[0] if matches else None
+
+    def find_by_id(self, pet_id: str) -> PetModel | None:
+        try:
+            pet_id = str(UUID(pet_id))
+        except ValueError:
+            return None
+        return self.db.get(PetModel, pet_id)
+
+    def find_by_student_and_name(self, student_id: str, name: str) -> PetModel | None:
+        return self.db.scalar(
+            select(PetModel).where(
+                PetModel.studentId == student_id, PetModel.name == name
+            )
+        )
 
     def save(self, pet: Pet) -> Pet:
-        self._store.set(pet)
-        return pet
+        values = pet.model_dump(exclude={"createdAt", "updatedAt"})
+        row = self.db.merge(
+            PetModel(**values, createdAt=pet.createdAt, updatedAt=pet.updatedAt)
+        )
+        self.db.flush()
+        return Pet.model_validate(row)
 
     def delete(self, pet_id: str) -> None:
-        self._store.delete(pet_id)
+        self.db.execute(delete(PetModel).where(PetModel.id == pet_id))
 
-    def delete_by_student(self, student_id: str) -> None:
-        self._store.delete_by(lambda pet: pet.studentId == student_id)
+    def commit(self) -> None:
+        self.db.commit()
 
-
-pets_repository = PetsRepository()
+    def rollback(self) -> None:
+        self.db.rollback()
