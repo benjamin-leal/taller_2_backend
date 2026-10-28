@@ -232,3 +232,56 @@ La aplicación queda disponible en:
 - `make format` — formatea el código con Ruff
 - `make format-check` — verifica el formato
 - `make clean` — elimina `.venv`, cachés y artefactos
+
+## Ejecución con Docker
+
+Requisitos: Docker Desktop abierto.
+
+1. Si `.env` ya existe, no lo sobrescribas. Comprueba que tenga `POSTGRES_DB`, `POSTGRES_USER` y `POSTGRES_PASSWORD`.
+
+2. Valida la configuración:
+
+   ```bash
+   docker compose config --quiet
+   ```
+
+3. Construye e inicia los servicios:
+
+   ```bash
+   docker compose up -d --build --wait
+   ```
+
+4. Comprueba su estado:
+
+   ```bash
+   docker compose ps
+   ```
+
+### Acceso a los servicios
+
+- API y frontend: http://localhost:3000
+- Documentación Swagger: http://localhost:3000/docs
+- Estado de la conexión a la base de datos: http://localhost:3000/api/health
+- Adminer: http://localhost:8080
+
+En Adminer, selecciona PostgreSQL como sistema y utiliza `db` como servidor. Introduce el usuario, contraseña y base de datos definidos en `.env`.
+
+### Persistencia y detención
+
+Los datos de PostgreSQL se guardan en el volumen `postgres_data`.
+
+Para detener los servicios sin borrar los datos:
+
+```bash
+docker compose down
+```
+
+**Precaución:** `docker compose down -v` elimina también el volumen de datos.
+
+### Evidencia de rollback
+
+En Swagger, envía una petición `POST /api/students` con un estudiante nuevo y dos mascotas con el mismo nombre.
+
+La respuesta esperada es HTTP `409`. Comprueba después que no se haya guardado el estudiante ni ninguna de las mascotas de esa petición.
+
+Registra la respuesta de la API y la comprobación posterior como evidencia.
