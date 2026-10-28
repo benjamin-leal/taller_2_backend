@@ -1,12 +1,12 @@
 from uuid import uuid4
 
-from fastapi import HTTPException, status
+from fastapi import Depends, HTTPException, status
 
 from app.pets.pets_repository import PetsRepository, pets_repository
 from app.pets.pets_schemas import CreatePetDto, Pet, PetList, UpdatePetDto
 from app.shared.datetimes import utc_now
 from app.shared.exceptions import conflict
-from app.students.students_service import StudentsService, students_service
+from app.students.students_service import StudentsService, get_students_service
 
 
 class PetsService:
@@ -94,4 +94,14 @@ class PetsService:
             )
 
 
-pets_service = PetsService(pets_repository, students_service)
+# ESPERO A: Persona 1 (compose base + repositorio de Pet).
+#   Mientras no migre Pet al ORM, `pets_repository` sigue siendo el de
+#   diccionarios. Cuando su PR (el extra de repositorio Pet) se fusione,
+#   cambia SOLO esta línea para construir el repositorio con la sesión:
+#       PetsRepository(db) y recibir `db: Session = Depends(get_db)` aquí.
+# Consecuencia temporal: las mascotas creadas por POST /students viven en
+# PostgreSQL, pero GET /students/{id}/pets aún lee del diccionario.
+def get_pets_service(
+    students: StudentsService = Depends(get_students_service),
+) -> PetsService:
+    return PetsService(pets_repository, students)
