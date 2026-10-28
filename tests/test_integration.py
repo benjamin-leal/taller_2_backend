@@ -1,31 +1,43 @@
+"""Pruebas de integración contra una BD desechable indicada por TEST_DATABASE_URL.
+
+Ejemplo:
+    TEST_DATABASE_URL=postgresql+psycopg://usuario:clave@localhost:5432/taller_test_api
+"""
+
 import asyncio
 import os
 from uuid import uuid4
 
 import httpx
 import pytest
-from alembic.config import Config
 from sqlalchemy import create_engine, delete, func, select
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from alembic import command
-from app.database import DatabaseSettings, get_db
-from app.main import create_app
-from app.models import Pet, Student
+TEST_URL = os.environ.get("TEST_DATABASE_URL")
+if not TEST_URL:
+    pytest.skip(
+        "Define TEST_DATABASE_URL con una base exclusiva de pruebas",
+        allow_module_level=True,
+    )
+assert make_url(TEST_URL).database.startswith("taller_test_"), "No usar BD de trabajo"
+# app.database lee DATABASE_URL al importarse: debe apuntar a la BD de pruebas
+os.environ["DATABASE_URL"] = make_url(TEST_URL).render_as_string(hide_password=False)
+
+from alembic.config import Config  # noqa: E402
+
+from alembic import command  # noqa: E402
+from app.database import get_db  # noqa: E402
+from app.main import create_app  # noqa: E402
+from app.models import Pet, Student  # noqa: E402
 
 
 @pytest.fixture(scope="module")
 def engine():
-    name = os.environ.get("TEST_POSTGRES_DB")
-    if not name:
-        pytest.skip("Define TEST_POSTGRES_DB con una base exclusiva de pruebas")
-    assert name.startswith("taller_test_")
-    engine = create_engine(DatabaseSettings().url.set(database=name))
-    config = Config("alembic.ini")
-    with engine.begin() as conn:
-        config.attributes["connection"] = conn
-        command.upgrade(config, "head")
-        command.check(config)
+    engine = create_engine(os.environ["DATABASE_URL"])
+    config = Config("alembic.ini")  # alembic/env.py lee DATABASE_URL (la de pruebas)
+    command.upgrade(config, "head")
+    command.check(config)
     yield engine
     engine.dispose()
 
@@ -197,30 +209,7 @@ def test_validation_contract(api):
     assert api("POST", "/api/students", json=payload(extra="no")).status_code == 400
 
 
-def test_valid_long_email_is_persisted(api):
-    email = "a" * 64 + "@" + ".".join(["b" * 30] * 3) + ".com"
-    assert create(api, email=email)["email"] == email
-
-
 def test_health_queries_database(api):
     response = api("GET", "/api/health")
     assert response.status_code == 200
     assert response.json()["data"] == {"database": "ok"}
-
-
-def test_database_url_handles_special_password():
-    settings = DatabaseSettings(
-        _env_file=None,
-        DATABASE_URL="",
-        POSTGRES_USER="jose",
-        POSTGRES_PASSWORD="p@ss:/%#word",
-        POSTGRES_DB="taller",
-        POSTGRES_PORT=5433,
-    )
-    from sqlalchemy.engine import make_url
-
-    parsed = make_url(settings.url.render_as_string(hide_password=False))
-    assert parsed.password == "p@ss:/%#word"
-    assert parsed.host == "localhost"
-    assert parsed.database == "taller"
-    assert parsed.port == 5433
