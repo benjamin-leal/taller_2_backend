@@ -1,7 +1,6 @@
 """Traducción de IntegrityError (SQLAlchemy/PostgreSQL) al 409 con formato `errors`.
-
-AUTÓNOMO: no importa modelos ni sesión, así que se puede fusionar sin romper main.
 """
+
 from typing import Final
 
 from fastapi import HTTPException
@@ -9,14 +8,10 @@ from sqlalchemy.exc import IntegrityError
 
 from app.shared.exceptions import conflict
 
-# ESPERO A: Persona 3 (ORM base).
-#   El define las constraints en los modelos y en la migración de Alembic.
-#   Para que este mapa funcione, debe nombrarlas EXACTAMENTE así (name="..."):
-#     - UniqueConstraint("email",              name="uq_students_email")
-#     - UniqueConstraint("username",           name="uq_students_username")
-#     - UniqueConstraint("studentId", "name",  name="uq_pets_student_name")
-#   Si el usa otros nombres, solo se edita este diccionario (no hay que tocar nada más).
 CONSTRAINT_ERRORS: Final[dict[str, tuple[str, str]]] = {
+    "students_email_key": ("email", "El correo electrónico ya está en uso"),
+    "students_username_key": ("username", "El nombre de usuario ya está en uso"),
+    "uq_pet_student_name": ("name", "Ya tienes una mascota con ese nombre"),
     "uq_students_email": ("email", "El correo electrónico ya está en uso"),
     "uq_students_username": ("username", "El nombre de usuario ya está en uso"),
     "uq_pets_student_name": ("name", "Ya tienes una mascota con ese nombre"),

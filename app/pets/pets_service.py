@@ -1,10 +1,14 @@
 from uuid import uuid4
 
 from fastapi import Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-from app.pets.pets_repository import PetsRepository, pets_repository
+from app.database import get_db
+from app.pets.pets_repository import PetsRepository
 from app.pets.pets_schemas import CreatePetDto, Pet, PetList, UpdatePetDto
 from app.shared.datetimes import utc_now
+from app.shared.db_errors import integrity_to_conflict
 from app.shared.exceptions import conflict
 from app.students.students_service import StudentsService, get_students_service
 
@@ -40,7 +44,7 @@ class PetsService:
             updatedAt=now,
         )
 
-        return self.repository.save(pet)
+        return self._save(pet)
 
     def update(self, student_id: str, pet_id: str, data: UpdatePetDto) -> Pet:
         existing = self.find_owned(student_id, pet_id)
@@ -53,16 +57,18 @@ class PetsService:
             }
         )
 
-        return self.repository.save(updated)
+        return self._save(updated)
 
     def delete(self, student_id: str, pet_id: str) -> Pet:
         existing = self.find_owned(student_id, pet_id)
-        self.repository.delete(pet_id)
+        try:
+            self.repository.delete(pet_id)
+            self.repository.commit()
+        except IntegrityError as exc:
+            self.repository.rollback()
+            raise integrity_to_conflict(exc) from exc
 
         return existing
-
-    def delete_all_for_student(self, student_id: str) -> None:
-        self.repository.delete_by_student(student_id)
 
     def find_owned(self, student_id: str, pet_id: str) -> Pet:
         self.students_service.find_by_id(student_id)
@@ -75,7 +81,16 @@ class PetsService:
                 detail="Mascota no encontrada",
             )
 
-        return pet
+        return Pet.model_validate(pet)
+
+    def _save(self, pet: Pet) -> Pet:
+        try:
+            saved = self.repository.save(pet)
+            self.repository.commit()
+            return saved
+        except IntegrityError as exc:
+            self.repository.rollback()
+            raise integrity_to_conflict(exc) from exc
 
     def assert_no_conflicts(
         self,
@@ -94,14 +109,8 @@ class PetsService:
             )
 
 
-# ESPERO A: Persona 1 (compose base + repositorio de Pet).
-#   Mientras no migre Pet al ORM, `pets_repository` sigue siendo el de
-#   diccionarios. Cuando su PR (el extra de repositorio Pet) se fusione,
-#   cambia SOLO esta línea para construir el repositorio con la sesión:
-#       PetsRepository(db) y recibir `db: Session = Depends(get_db)` aquí.
-# Consecuencia temporal: las mascotas creadas por POST /students viven en
-# PostgreSQL, pero GET /students/{id}/pets aún lee del diccionario.
 def get_pets_service(
+    db: Session = Depends(get_db),
     students: StudentsService = Depends(get_students_service),
 ) -> PetsService:
-    return PetsService(pets_repository, students)
+    return PetsService(PetsRepository(db), students)

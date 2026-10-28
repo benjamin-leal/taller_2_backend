@@ -4,23 +4,13 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-# ESPERO A: Persona 3 (ORM base). El crea el engine, SessionLocal y `get_db()`
-#   (generador que entrega una Session y la cierra) en este módulo.
-from app.db.session import get_db
-
-# ESPERO A: Persona 3 (ORM base). El define `PetModel` con FK a students.id
-#   (ondelete="CASCADE") y la relación inversa; los atributos deben llamarse
-#   igual que en `Pet` de pets_schemas.py (studentId, createdAt, updatedAt...).
-from app.pets.pets_model import PetModel
+from app.database import get_db
+from app.models import Pet as PetModel
+from app.models import Student as StudentModel
 from app.shared.datetimes import utc_now
 from app.shared.db_errors import integrity_to_conflict
 from app.shared.exceptions import conflict
 from app.shared.types import FieldErrors
-
-# ESPERO A: Persona 3. Ver comentario en students_repository.py.
-#   Además, `StudentModel.pets` debe tener cascade="all, delete-orphan":
-#   de eso depende que delete() borre las mascotas sin código extra.
-from app.students.students_model import StudentModel
 from app.students.students_repository import StudentsRepository
 from app.students.students_schemas import (
     CreateStudentDto,
@@ -91,7 +81,7 @@ class StudentsService:
         deleted = Student.model_validate(student)  # antes del delete: después se expira
 
         self.repository.delete(student)  # las mascotas caen por cascade
-        self.repository.commit()
+        self._commit_or_conflict()
 
         return deleted
 

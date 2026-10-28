@@ -1,4 +1,5 @@
 """No necesita base de datos: simula el error que entrega psycopg."""
+
 from sqlalchemy.exc import IntegrityError
 
 from app.shared.db_errors import integrity_to_conflict
@@ -29,7 +30,10 @@ def test_email_constraint_maps_to_email_field():
 
 def test_pet_constraint_maps_to_name_field():
     err = integrity_to_conflict(_exc("uq_pets_student_name"))
-    assert err.detail["errors"]["name"]["message"] == "Ya tienes una mascota con ese nombre"
+    assert (
+        err.detail["errors"]["name"]["message"]
+        == "Ya tienes una mascota con ese nombre"
+    )
 
 
 def test_unknown_constraint_falls_back_to_generic_409():
